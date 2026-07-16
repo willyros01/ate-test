@@ -7,6 +7,8 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Split It">
 <title>Split It — Expense Splitter</title>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
 <style>
   :root{
     --bg:#f2f2f7; --card:#ffffff; --text:#1c1c1e; --sub:#6e6e73;
@@ -210,6 +212,26 @@
   <!-- SUMMARY -->
   <section id="page-summary" class="page">
     <div id="summaryContent"></div>
+    <div class="card" style="margin-top:14px;">
+      <label style="margin-top:0;">Cloud sync</label>
+      <p class="note" id="syncStatus" style="text-align:left; margin:4px 0 12px;">Local only — not synced.</p>
+      <div class="btnrow" style="margin-top:0;">
+        <button class="secondary" type="button" id="syncShareBtn" style="display:none;" onclick="shareSyncSetup()">Share setup</button>
+        <button class="primary" type="button" id="syncSetupBtn" onclick="openSyncModal()">Set up sync</button>
+      </div>
+    </div>
+    <div class="card" style="margin-top:14px;">
+      <label style="margin-top:0;">Backup &amp; restore</label>
+      <p class="note" style="text-align:left; margin:4px 0 12px;">
+        Save your expense history (including receipt photos) as a file in your Files app,
+        and load it back anytime — even on another device.
+      </p>
+      <div class="btnrow" style="margin-top:0;">
+        <button class="secondary" type="button" onclick="document.getElementById('restoreInput').click()">Load backup</button>
+        <button class="primary" type="button" onclick="exportBackup()">Save backup</button>
+      </div>
+      <input type="file" id="restoreInput" accept=".json,application/json" style="display:none">
+    </div>
   </section>
 </main>
 
@@ -229,6 +251,26 @@
 </nav>
 
 <div class="toast" id="toast"></div>
+
+<div id="syncModal" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,.5); z-index:150; overflow:auto; -webkit-overflow-scrolling:touch;">
+  <div class="card" style="max-width:480px; margin:40px auto; margin-top:calc(30px + env(safe-area-inset-top));">
+    <h2 style="font-size:20px; margin:0 0 6px;">Cloud sync setup</h2>
+    <p class="note" style="text-align:left; margin:0 0 10px;">
+      Paste your Firebase config below (from the setup guide), or the full “sync setup” message shared from your other device.
+    </p>
+    <label for="fbConfig">Firebase config</label>
+    <textarea id="fbConfig" rows="7" placeholder='{ "apiKey": "...", "projectId": "...", ... }'
+      style="width:100%; font-size:13px; font-family:ui-monospace,Menlo,monospace; padding:10px; border-radius:10px; border:1px solid var(--border); background:var(--input-bg); color:var(--text);"></textarea>
+    <label for="hhCode">Household code</label>
+    <input type="text" id="hhCode" autocapitalize="off" autocorrect="off" spellcheck="false">
+    <p class="note" style="text-align:left;">Devices (and people) using the same code share the same expenses. Keep it private.</p>
+    <div class="btnrow">
+      <button class="secondary" type="button" onclick="closeSyncModal()">Cancel</button>
+      <button class="primary" type="button" onclick="connectSync()">Connect</button>
+    </div>
+    <button class="danger-link" id="disconnectBtn" style="display:none;" type="button" onclick="disconnectSync()">Turn off sync on this device</button>
+  </div>
+</div>
 
 <div id="photoViewer" onclick="closeViewer()">
   <img id="viewerImg" alt="Receipt full size">
@@ -315,6 +357,7 @@ function saveTxs(list){
   var ok = store('splitit_txs', JSON.stringify(list));
   if (ok === false) toast('Storage is full — try deleting old photos');
 }
+function saveTxsLocal(list){ saveTxs(list); }
 
 var editingId = null;
 
@@ -337,16 +380,22 @@ function compressImage(file, cb){
   var img = new Image();
   img.onload = function(){
     try {
-      var MAX = 1200;
-      var w = img.width, h = img.height;
-      if (w > MAX || h > MAX) {
-        var s = MAX / Math.max(w, h);
-        w = Math.round(w * s); h = Math.round(h * s);
+      // step down until the result fits comfortably inside a cloud record (<700 KB)
+      var LADDER = [[1200, .65], [1000, .55], [800, .45], [640, .38]];
+      var out = null;
+      for (var i = 0; i < LADDER.length; i++) {
+        var MAX = LADDER[i][0], Q = LADDER[i][1];
+        var w = img.width, h = img.height;
+        if (w > MAX || h > MAX) {
+          var s = MAX / Math.max(w, h);
+          w = Math.round(w * s); h = Math.round(h * s);
+        }
+        var cv = document.createElement('canvas');
+        cv.width = w; cv.height = h;
+        cv.getContext('2d').drawImage(img, 0, 0, w, h);
+        out = cv.toDataURL('image/jpeg', Q);
+        if (out.length < 700000) break;
       }
-      var cv = document.createElement('canvas');
-      cv.width = w; cv.height = h;
-      cv.getContext('2d').drawImage(img, 0, 0, w, h);
-      var out = cv.toDataURL('image/jpeg', 0.65);
       URL.revokeObjectURL(url);
       cb(out);
     } catch(e){ URL.revokeObjectURL(url); cb(null); }
@@ -423,6 +472,7 @@ function saveTx(){
   if (!(c.amountPHP > 0)) { toast('Enter an amount first'); return; }
   if (!c.desc) c.desc = 'Expense';
   c.photo = pendingPhoto || null;
+  c.updatedAt = Date.now();
   var list = loadTxs();
   if (editingId) {
     for (var i = 0; i < list.length; i++) {
@@ -435,6 +485,7 @@ function saveTx(){
     toast('Expense saved');
   }
   saveTxs(list);
+  cloudWrite(c);
   cancelEdit(true);
   renderHistory(); renderSummary();
 }
@@ -473,6 +524,7 @@ function cancelEdit(keepQuiet){
 function deleteTx(id){
   if (!confirm('Delete this expense?')) return;
   saveTxs(loadTxs().filter(function(t){ return t.id !== id; }));
+  cloudDelete(id);
   renderHistory(); renderSummary();
   toast('Deleted');
 }
@@ -585,6 +637,191 @@ function renderSummary(){
     tableFor(byYear, function(k){ return k; }) + '</div>';
 }
 
+/* ---------- cloud sync (Firebase Firestore) ---------- */
+var cloud = null;                 // {db, col}
+var cloudState = 'off';           // off | connecting | on | error
+var cloudErr = '';
+
+function getSyncCfg(){ try { return JSON.parse(store('splitit_fb') || 'null'); } catch(e){ return null; } }
+
+function randomCode(){
+  var chars = 'abcdefghjkmnpqrstuvwxyz23456789', s = 'H-';
+  for (var i = 0; i < 16; i++) s += chars.charAt(Math.floor(Math.random() * chars.length));
+  return s;
+}
+
+/* Parse pasted config: accepts strict JSON, the JS snippet from the Firebase
+   console (unquoted keys, single quotes, "const firebaseConfig = {...};"),
+   or a shared setup blob {config:{...}, code:"..."} */
+function parseSyncPaste(text){
+  if (!text) return null;
+  var start = text.indexOf('{'), end = text.lastIndexOf('}');
+  if (start < 0 || end <= start) return null;
+  var body = text.slice(start, end + 1);
+  var obj = null;
+  try { obj = JSON.parse(body); } catch(e){
+    try {
+      var fixed = body
+        .replace(/\/\/[^\n\r]*/g, '')                              // line comments
+        .replace(/'/g, '"')                                        // single→double quotes
+        .replace(/([{,]\s*)([A-Za-z0-9_$]+)\s*:/g, '$1"$2":')      // quote keys
+        .replace(/,\s*([}\]])/g, '$1');                            // trailing commas
+      obj = JSON.parse(fixed);
+    } catch(e2){ return null; }
+  }
+  if (!obj) return null;
+  if (obj.config && obj.config.apiKey) return { config: obj.config, code: obj.code || null };
+  if (obj.apiKey && obj.projectId) return { config: obj, code: null };
+  return null;
+}
+
+function initSync(){
+  var cfg = getSyncCfg();
+  updateSyncUI();
+  if (!cfg || !cfg.config || !cfg.code) return;
+  if (!window.firebase || !firebase.firestore) { cloudState = 'error'; cloudErr = 'offline — sync library not loaded yet'; updateSyncUI(); return; }
+  cloudState = 'connecting'; updateSyncUI();
+  try {
+    if (!firebase.apps.length) firebase.initializeApp(cfg.config);
+    var db = firebase.firestore();
+    db.enablePersistence().catch(function(){}).then(function(){
+      cloud = { db: db, col: db.collection('households').doc(cfg.code).collection('txs') };
+      // one-time migration: push existing local expenses into the cloud
+      if (!store('splitit_migrated_' + cfg.code)) {
+        loadTxs().forEach(function(t){
+          if (!t.updatedAt) t.updatedAt = 1;   // old local data loses ties to fresher cloud edits
+          cloud.col.doc(t.id).set(t, { merge: true }).catch(function(){});
+        });
+        store('splitit_migrated_' + cfg.code, '1');
+      }
+      cloud.col.onSnapshot(function(snap){
+        var list = [];
+        snap.forEach(function(d){ var t = d.data(); if (t && !t.deleted) list.push(t); });
+        list.sort(function(a, b){
+          return (b.date || '').localeCompare(a.date || '') || (b.updatedAt || 0) - (a.updatedAt || 0);
+        });
+        saveTxsLocal(list);
+        cloudState = 'on'; cloudErr = '';
+        updateSyncUI(); renderHistory(); renderSummary();
+      }, function(err){
+        cloudState = 'error'; cloudErr = err.code || 'connection failed';
+        updateSyncUI();
+      });
+    });
+  } catch(e){ cloudState = 'error'; cloudErr = 'bad config'; cloud = null; updateSyncUI(); }
+}
+
+function cloudWrite(tx){
+  if (!cloud) return;
+  cloud.col.doc(tx.id).set(tx).catch(function(){ /* queued offline or rejected by rules */ });
+}
+function cloudDelete(id){
+  if (!cloud) return;
+  cloud.col.doc(id).set({ id: id, deleted: true, updatedAt: Date.now() }).catch(function(){});
+}
+
+function updateSyncUI(){
+  var cfg = getSyncCfg();
+  var st = document.getElementById('syncStatus');
+  var setupBtn = document.getElementById('syncSetupBtn');
+  var shareBtn = document.getElementById('syncShareBtn');
+  if (!cfg || !cfg.code) {
+    st.textContent = 'Local only — not synced. Set up cloud sync to share expenses across your devices.';
+    setupBtn.textContent = 'Set up sync';
+    shareBtn.style.display = 'none';
+    return;
+  }
+  var msg = { off: 'Sync configured.', connecting: 'Connecting…',
+              on: '✓ Syncing', error: '⚠︎ Sync problem: ' + cloudErr }[cloudState] || '';
+  st.textContent = msg + ' · household ' + cfg.code +
+    (cloudState === 'on' ? ' — changes made offline upload automatically when you reconnect.' : '');
+  setupBtn.textContent = 'Manage';
+  shareBtn.style.display = '';
+}
+
+function openSyncModal(){
+  var cfg = getSyncCfg();
+  document.getElementById('fbConfig').value = cfg ? JSON.stringify(cfg.config, null, 2) : '';
+  var codeEl = document.getElementById('hhCode');
+  codeEl.value = (cfg && cfg.code) ? cfg.code : randomCode();
+  codeEl.dataset.prefill = codeEl.value;
+  document.getElementById('disconnectBtn').style.display = cfg ? 'block' : 'none';
+  document.getElementById('syncModal').style.display = 'block';
+}
+function closeSyncModal(){ document.getElementById('syncModal').style.display = 'none'; }
+
+function connectSync(){
+  var parsed = parseSyncPaste(document.getElementById('fbConfig').value);
+  if (!parsed) { toast('That config doesn’t look right — paste the whole block'); return; }
+  var codeEl = document.getElementById('hhCode');
+  var typed = (codeEl.value || '').trim();
+  var code;
+  if (parsed.code && (typed === '' || typed === codeEl.dataset.prefill)) {
+    code = parsed.code;            // a shared setup carries its household code with it
+  } else {
+    code = typed || parsed.code || randomCode();
+  }
+  store('splitit_fb', JSON.stringify({ config: parsed.config, code: code }));
+  closeSyncModal();
+  toast('Connecting…');
+  location.reload();   // clean re-init with the new settings
+}
+
+function disconnectSync(){
+  if (!confirm('Turn off sync on this device? Your expenses stay on this device and in the cloud; this device just stops syncing.')) return;
+  store('splitit_fb', 'null');
+  location.reload();
+}
+
+function shareSyncSetup(){
+  var cfg = getSyncCfg();
+  if (!cfg) return;
+  var blob = JSON.stringify({ app: 'split-it-sync', config: cfg.config, code: cfg.code });
+  shareText('Split It sync setup — open Split It on your device, go to Summary → Cloud sync → Set up sync, and paste this whole message:\n\n' + blob);
+}
+
+/* ---------- backup & restore ---------- */
+function exportBackup(){
+  var list = loadTxs();
+  if (!list.length) { toast('Nothing to back up yet'); return; }
+  var payload = JSON.stringify({ app: 'split-it', version: 1, exported: new Date().toISOString(), txs: list });
+  var blob = new Blob([payload], { type: 'application/json' });
+  var file = new File([blob], 'split-it-backup.json', { type: 'application/json' });
+  if (navigator.share && navigator.canShare && navigator.canShare({ files: [file] })) {
+    navigator.share({ files: [file] })
+      .then(function(){ toast('Backup shared — choose “Save to Files”'); })
+      .catch(function(){});
+  } else {
+    var a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'split-it-backup.json';
+    document.body.appendChild(a); a.click(); a.remove();
+    toast('Backup downloaded');
+  }
+}
+
+document.getElementById('restoreInput').addEventListener('change', function(){
+  var f = this.files && this.files[0];
+  this.value = '';
+  if (!f) return;
+  var reader = new FileReader();
+  reader.onload = function(){
+    try {
+      var data = JSON.parse(reader.result);
+      var txs = (data && data.app === 'split-it' && Array.isArray(data.txs)) ? data.txs : null;
+      if (!txs) { toast('That doesn’t look like a Split It backup'); return; }
+      var existing = loadTxs();
+      if (existing.length && !confirm('Replace your current ' + existing.length + ' expense(s) with the ' + txs.length + ' from this backup?')) return;
+      saveTxs(txs);
+      txs.forEach(function(t){ if (!t.updatedAt) t.updatedAt = 1; cloudWrite(t); });
+      renderHistory(); renderSummary();
+      toast('Restored ' + txs.length + ' expense(s)');
+    } catch(e){ toast('Could not read that backup file'); }
+  };
+  reader.onerror = function(){ toast('Could not read that backup file'); };
+  reader.readAsText(f);
+});
+
 /* ---------- tabs ---------- */
 function showPage(name){
   ['new','history','summary'].forEach(function(p){
@@ -609,6 +846,12 @@ if (!storageOK) {
 recalc();
 renderHistory();
 renderSummary();
+initSync();
+
+// offline support: cache the app so it opens with no connection (https only)
+if ('serviceWorker' in navigator && location.protocol === 'https:') {
+  try { navigator.serviceWorker.register('sw.js'); } catch(e){}
+}
 </script>
 </body>
 </html>
