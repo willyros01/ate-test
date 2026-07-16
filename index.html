@@ -1,0 +1,614 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Split It">
+<title>Split It — Expense Splitter</title>
+<style>
+  :root{
+    --bg:#f2f2f7; --card:#ffffff; --text:#1c1c1e; --sub:#6e6e73;
+    --accent:#0a84ff; --accent-soft:#e5f1ff; --green:#30a14e; --red:#d70015;
+    --border:#e5e5ea; --input-bg:#ffffff;
+  }
+  @media (prefers-color-scheme: dark){
+    :root{
+      --bg:#000000; --card:#1c1c1e; --text:#f2f2f7; --sub:#98989e;
+      --accent:#0a84ff; --accent-soft:#0d2a4a; --green:#32d74b; --red:#ff453a;
+      --border:#2c2c2e; --input-bg:#2c2c2e;
+    }
+  }
+  *{box-sizing:border-box; -webkit-tap-highlight-color:transparent;}
+  body{
+    margin:0; background:var(--bg); color:var(--text);
+    font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","Segoe UI",Roboto,sans-serif;
+    padding-bottom:calc(84px + env(safe-area-inset-bottom));
+  }
+  header{
+    padding:calc(14px + env(safe-area-inset-top)) 20px 10px;
+    display:flex; justify-content:space-between; align-items:baseline;
+  }
+  header h1{font-size:26px; margin:0; letter-spacing:-0.4px;}
+  #rateBadge{font-size:12px; color:var(--sub); text-align:right; line-height:1.4;}
+  #rateBadge b{color:var(--text); font-variant-numeric:tabular-nums;}
+  main{padding:0 16px; max-width:520px; margin:0 auto;}
+  .card{
+    background:var(--card); border-radius:16px; padding:16px; margin-bottom:14px;
+    box-shadow:0 1px 2px rgba(0,0,0,.06);
+  }
+  label{display:block; font-size:13px; color:var(--sub); margin:12px 0 6px; font-weight:600;}
+  label:first-child{margin-top:0;}
+  input[type=text],input[type=number],input[type=date]{
+    width:100%; font-size:17px; padding:12px; border-radius:10px;
+    border:1px solid var(--border); background:var(--input-bg); color:var(--text);
+    appearance:none; -webkit-appearance:none; min-height:46px;
+  }
+  input:focus{outline:2px solid var(--accent); border-color:transparent;}
+  .row{display:flex; gap:10px;}
+  .row>div{flex:1;}
+  .stepper{display:flex; align-items:center; gap:0; border:1px solid var(--border); border-radius:10px; overflow:hidden;}
+  .stepper button{
+    width:52px; height:46px; border:none; background:var(--input-bg); color:var(--accent);
+    font-size:24px; font-weight:600; cursor:pointer;
+  }
+  .stepper input{border:none; border-radius:0; text-align:center; flex:1; min-width:0;}
+  .result{
+    background:var(--accent-soft); border-radius:12px; padding:14px; margin-top:16px;
+    text-align:center;
+  }
+  .result .each{font-size:30px; font-weight:700; letter-spacing:-0.5px; font-variant-numeric:tabular-nums;}
+  .result .each small{font-size:16px; font-weight:600; color:var(--sub);}
+  .result .cadline{font-size:16px; color:var(--sub); margin-top:2px; font-variant-numeric:tabular-nums;}
+  .result .totline{font-size:12px; color:var(--sub); margin-top:8px;}
+  .btnrow{display:flex; gap:10px; margin-top:14px;}
+  button.primary,button.secondary{
+    flex:1; padding:14px; font-size:16px; font-weight:600; border-radius:12px;
+    border:none; cursor:pointer; min-height:50px;
+  }
+  button.primary{background:var(--accent); color:#fff;}
+  button.secondary{background:var(--accent-soft); color:var(--accent);}
+  button.danger-link{background:none; border:none; color:var(--red); font-size:15px; font-weight:600; padding:12px; width:100%; cursor:pointer;}
+  #cancelEditBtn{display:none; background:none; border:none; color:var(--sub); font-size:15px; padding:12px; width:100%; cursor:pointer;}
+  /* history */
+  .tx{
+    background:var(--card); border-radius:14px; padding:14px 16px; margin-bottom:10px;
+    display:flex; justify-content:space-between; align-items:center; gap:10px;
+  }
+  .tx .info{min-width:0;}
+  .tx .desc{font-weight:600; font-size:16px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
+  .tx .meta{font-size:13px; color:var(--sub); margin-top:2px;}
+  .tx .amts{text-align:right; flex-shrink:0;}
+  .tx .php{font-weight:700; font-variant-numeric:tabular-nums;}
+  .tx .cad{font-size:13px; color:var(--sub); font-variant-numeric:tabular-nums;}
+  .tx .each-sm{font-size:12px; color:var(--green); font-weight:600;}
+  .tx-actions{display:flex; gap:8px; margin-top:10px;}
+  .tx-actions button{
+    flex:1; padding:8px; font-size:14px; font-weight:600; border-radius:8px; border:none; cursor:pointer;
+  }
+  .tx-wrap{background:var(--card); border-radius:14px; padding:14px 16px; margin-bottom:10px;}
+  .tx-wrap .tx{padding:0; background:none; border-radius:0; margin:0;}
+  .edit-btn{background:var(--accent-soft); color:var(--accent);}
+  .share-btn{background:var(--accent-soft); color:var(--accent);}
+  .del-btn{background:rgba(215,0,21,.1); color:var(--red);}
+  .empty{color:var(--sub); text-align:center; padding:40px 20px; font-size:15px;}
+  /* summary */
+  .sum-section h2{font-size:15px; color:var(--sub); margin:18px 4px 8px; text-transform:uppercase; letter-spacing:.5px; font-weight:600;}
+  table.sum{width:100%; border-collapse:collapse; background:var(--card); border-radius:14px; overflow:hidden;}
+  table.sum th,table.sum td{padding:12px 14px; text-align:right; font-size:15px; font-variant-numeric:tabular-nums;}
+  table.sum th{font-size:12px; color:var(--sub); text-transform:uppercase; letter-spacing:.4px; border-bottom:1px solid var(--border);}
+  table.sum td:first-child,table.sum th:first-child{text-align:left; font-weight:600;}
+  table.sum tr+tr td{border-top:1px solid var(--border);}
+  /* tabs */
+  nav{
+    position:fixed; bottom:0; left:0; right:0; display:flex;
+    background:var(--card); border-top:1px solid var(--border);
+    padding-bottom:env(safe-area-inset-bottom);
+  }
+  nav button{
+    flex:1; background:none; border:none; padding:10px 0 8px; cursor:pointer;
+    color:var(--sub); font-size:11px; font-weight:600;
+    display:flex; flex-direction:column; align-items:center; gap:3px;
+  }
+  nav button.active{color:var(--accent);}
+  nav button svg{width:26px; height:26px;}
+  .page{display:none;}
+  .page.active{display:block;}
+  .toast{
+    position:fixed; bottom:calc(96px + env(safe-area-inset-bottom)); left:50%; transform:translateX(-50%);
+    background:var(--text); color:var(--bg); padding:10px 18px; border-radius:20px;
+    font-size:14px; font-weight:600; opacity:0; transition:opacity .25s; pointer-events:none; z-index:99;
+    white-space:nowrap;
+  }
+  .toast.show{opacity:1;}
+  .note{font-size:12px; color:var(--sub); text-align:center; margin-top:10px;}
+  /* receipt photo */
+  #photoWrap{margin-top:6px;}
+  #photoPreviewBox{display:none; margin-top:10px; position:relative;}
+  #photoPreview{width:100%; max-height:220px; object-fit:cover; border-radius:12px; border:1px solid var(--border); display:block;}
+  #removePhotoBtn{
+    position:absolute; top:8px; right:8px; background:rgba(0,0,0,.65); color:#fff;
+    border:none; border-radius:14px; padding:6px 12px; font-size:13px; font-weight:600; cursor:pointer;
+  }
+  button.photo-add{
+    width:100%; padding:12px; font-size:15px; font-weight:600; border-radius:10px;
+    border:1px dashed var(--accent); background:none; color:var(--accent); cursor:pointer; min-height:46px;
+  }
+  .tx-thumb{width:52px; height:52px; object-fit:cover; border-radius:8px; border:1px solid var(--border); flex-shrink:0; cursor:pointer;}
+  #photoViewer{
+    display:none; position:fixed; inset:0; background:rgba(0,0,0,.92); z-index:200;
+    align-items:center; justify-content:center; flex-direction:column; gap:14px;
+    padding:20px; padding-top:calc(20px + env(safe-area-inset-top));
+  }
+  #photoViewer img{max-width:100%; max-height:80vh; border-radius:10px;}
+  #photoViewer button{background:rgba(255,255,255,.15); color:#fff; border:none; border-radius:20px; padding:10px 24px; font-size:15px; font-weight:600; cursor:pointer;}
+</style>
+</head>
+<body>
+
+<header>
+  <h1 id="pageTitle">Split It</h1>
+  <div id="rateBadge">₱1 = <b id="rateVal">…</b> CAD<br><span id="rateSrc">loading rate…</span></div>
+</header>
+
+<main>
+  <!-- NEW / EDIT EXPENSE -->
+  <section id="page-new" class="page active">
+    <div class="card">
+      <label for="desc">Description</label>
+      <input type="text" id="desc" placeholder="e.g. Dinner at Jollibee" autocomplete="off">
+
+      <div class="row">
+        <div>
+          <label for="amount">Amount (PHP ₱)</label>
+          <input type="number" id="amount" inputmode="decimal" placeholder="0.00" min="0" step="0.01">
+        </div>
+        <div>
+          <label for="date">Date</label>
+          <input type="date" id="date">
+        </div>
+      </div>
+
+      <label for="parties">Number of people splitting</label>
+      <div class="stepper">
+        <button type="button" onclick="stepParties(-1)" aria-label="fewer people">−</button>
+        <input type="number" id="parties" inputmode="numeric" value="2" min="1" step="1">
+        <button type="button" onclick="stepParties(1)" aria-label="more people">+</button>
+      </div>
+
+      <label>Receipt photo (optional)</label>
+      <div id="photoWrap">
+        <input type="file" id="photoInput" accept="image/*" style="display:none">
+        <button class="photo-add" id="photoBtn" type="button" onclick="document.getElementById('photoInput').click()">&#128247; Add receipt photo</button>
+        <div id="photoPreviewBox">
+          <img id="photoPreview" alt="Receipt">
+          <button id="removePhotoBtn" type="button" onclick="removePhoto()">Remove</button>
+        </div>
+      </div>
+
+      <div class="result">
+        <div class="each"><span id="eachPHP">₱0.00</span> <small>/ person</small></div>
+        <div class="cadline">≈ <span id="eachCAD">C$0.00</span> / person</div>
+        <div class="totline">Total: <span id="totPHP">₱0.00</span> · ≈ <span id="totCAD">C$0.00</span></div>
+      </div>
+
+      <div class="btnrow">
+        <button class="secondary" type="button" onclick="shareCurrent()">Share</button>
+        <button class="primary" id="saveBtn" type="button" onclick="saveTx()">Save</button>
+      </div>
+      <button id="cancelEditBtn" type="button" onclick="cancelEdit()">Cancel editing</button>
+    </div>
+    <p class="note" id="storageNote"></p>
+  </section>
+
+  <!-- HISTORY -->
+  <section id="page-history" class="page">
+    <div id="txList"></div>
+  </section>
+
+  <!-- SUMMARY -->
+  <section id="page-summary" class="page">
+    <div id="summaryContent"></div>
+  </section>
+</main>
+
+<nav>
+  <button id="tab-new" class="active" onclick="showPage('new')">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 8v8M8 12h8"/></svg>
+    New
+  </button>
+  <button id="tab-history" onclick="showPage('history')">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 6h16M4 12h16M4 18h10"/></svg>
+    History
+  </button>
+  <button id="tab-summary" onclick="showPage('summary')">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 20V10M10 20V4M16 20v-8M22 20H2"/></svg>
+    Summary
+  </button>
+</nav>
+
+<div class="toast" id="toast"></div>
+
+<div id="photoViewer" onclick="closeViewer()">
+  <img id="viewerImg" alt="Receipt full size">
+  <button type="button">Close</button>
+</div>
+
+<script>
+'use strict';
+
+/* ---------- safe storage (falls back to memory if unavailable) ---------- */
+var memStore = {};
+var storageOK = false;
+try {
+  var _t = '_splitit_test';
+  window.localStorage.setItem(_t, '1');
+  window.localStorage.removeItem(_t);
+  storageOK = true;
+} catch (e) { storageOK = false; }
+
+function store(key, val){
+  if (val === undefined) { // read
+    if (storageOK) { try { return window.localStorage.getItem(key); } catch(e){ return memStore[key] || null; } }
+    return memStore.hasOwnProperty(key) ? memStore[key] : null;
+  }
+  if (storageOK) {
+    try { window.localStorage.setItem(key, val); return true; }
+    catch(e){ memStore[key] = val; return false; } // quota exceeded → memory only
+  }
+  memStore[key] = val;
+  return true;
+}
+
+/* ---------- exchange rate ---------- */
+var FALLBACK_RATE = 0.023024;              // PHP→CAD, captured 2026-07-16
+var FALLBACK_DATE = '2026-07-16';
+var rate = FALLBACK_RATE, rateInfo = 'built-in rate (' + FALLBACK_DATE + ')';
+
+(function initRate(){
+  var cached = store('splitit_rate');
+  if (cached) {
+    try {
+      var c = JSON.parse(cached);
+      if (c && c.rate > 0) { rate = c.rate; rateInfo = 'last known rate (' + c.date + ')'; }
+    } catch(e){}
+  }
+  renderRate();
+  fetch('https://open.er-api.com/v6/latest/PHP')
+    .then(function(r){ return r.json(); })
+    .then(function(d){
+      if (d && d.rates && d.rates.CAD > 0) {
+        rate = d.rates.CAD;
+        var today = new Date().toISOString().slice(0,10);
+        rateInfo = 'live rate · ' + today;
+        store('splitit_rate', JSON.stringify({rate: rate, date: today}));
+        renderRate(); recalc();
+      }
+    })
+    .catch(function(){ /* offline → keep cached/built-in */ renderRate(); });
+})();
+
+function renderRate(){
+  document.getElementById('rateVal').textContent = rate.toFixed(5);
+  document.getElementById('rateSrc').textContent = rateInfo;
+}
+
+/* ---------- helpers ---------- */
+function fmtPHP(n){ return '₱' + Number(n).toLocaleString('en-PH',{minimumFractionDigits:2, maximumFractionDigits:2}); }
+function fmtCAD(n){ return 'C$' + Number(n).toLocaleString('en-CA',{minimumFractionDigits:2, maximumFractionDigits:2}); }
+function toast(msg){
+  var t = document.getElementById('toast');
+  t.textContent = msg; t.classList.add('show');
+  clearTimeout(t._h); t._h = setTimeout(function(){ t.classList.remove('show'); }, 2200);
+}
+function todayStr(){
+  var d = new Date();
+  return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0');
+}
+
+/* ---------- transactions ---------- */
+function loadTxs(){
+  try { return JSON.parse(store('splitit_txs') || '[]'); } catch(e){ return []; }
+}
+function saveTxs(list){
+  var ok = store('splitit_txs', JSON.stringify(list));
+  if (ok === false) toast('Storage is full — try deleting old photos');
+}
+
+var editingId = null;
+
+/* ---------- receipt photo ---------- */
+var pendingPhoto = null;
+
+document.getElementById('photoInput').addEventListener('change', function(){
+  var f = this.files && this.files[0];
+  this.value = '';
+  if (!f) return;
+  compressImage(f, function(dataURL){
+    if (!dataURL) { toast('Could not read that photo'); return; }
+    pendingPhoto = dataURL;
+    showPhotoPreview();
+  });
+});
+
+function compressImage(file, cb){
+  var url = URL.createObjectURL(file);
+  var img = new Image();
+  img.onload = function(){
+    try {
+      var MAX = 1200;
+      var w = img.width, h = img.height;
+      if (w > MAX || h > MAX) {
+        var s = MAX / Math.max(w, h);
+        w = Math.round(w * s); h = Math.round(h * s);
+      }
+      var cv = document.createElement('canvas');
+      cv.width = w; cv.height = h;
+      cv.getContext('2d').drawImage(img, 0, 0, w, h);
+      var out = cv.toDataURL('image/jpeg', 0.65);
+      URL.revokeObjectURL(url);
+      cb(out);
+    } catch(e){ URL.revokeObjectURL(url); cb(null); }
+  };
+  img.onerror = function(){ URL.revokeObjectURL(url); cb(null); };
+  img.src = url;
+}
+
+function showPhotoPreview(){
+  var box = document.getElementById('photoPreviewBox');
+  var btn = document.getElementById('photoBtn');
+  if (pendingPhoto) {
+    document.getElementById('photoPreview').src = pendingPhoto;
+    box.style.display = 'block';
+    btn.textContent = '📷 Change receipt photo';
+  } else {
+    box.style.display = 'none';
+    document.getElementById('photoPreview').removeAttribute('src');
+    btn.textContent = '📷 Add receipt photo';
+  }
+}
+
+function removePhoto(){
+  pendingPhoto = null;
+  showPhotoPreview();
+}
+
+function viewPhoto(id){
+  var list = loadTxs();
+  for (var i = 0; i < list.length; i++) {
+    if (list[i].id === id && list[i].photo) {
+      document.getElementById('viewerImg').src = list[i].photo;
+      document.getElementById('photoViewer').style.display = 'flex';
+      return;
+    }
+  }
+}
+function closeViewer(){
+  document.getElementById('photoViewer').style.display = 'none';
+  document.getElementById('viewerImg').removeAttribute('src');
+}
+
+function currentInput(){
+  var amt = parseFloat(document.getElementById('amount').value) || 0;
+  var n = Math.max(1, parseInt(document.getElementById('parties').value, 10) || 1);
+  return {
+    desc: (document.getElementById('desc').value || '').trim(),
+    date: document.getElementById('date').value || todayStr(),
+    amountPHP: amt,
+    parties: n,
+    rate: rate,
+    amountCAD: amt * rate,
+    eachPHP: amt / n,
+    eachCAD: (amt * rate) / n
+  };
+}
+
+function recalc(){
+  var c = currentInput();
+  document.getElementById('eachPHP').textContent = fmtPHP(c.eachPHP);
+  document.getElementById('eachCAD').textContent = fmtCAD(c.eachCAD);
+  document.getElementById('totPHP').textContent  = fmtPHP(c.amountPHP);
+  document.getElementById('totCAD').textContent  = fmtCAD(c.amountCAD);
+}
+
+function stepParties(d){
+  var el = document.getElementById('parties');
+  el.value = Math.max(1, (parseInt(el.value,10) || 1) + d);
+  recalc();
+}
+
+function saveTx(){
+  var c = currentInput();
+  if (!(c.amountPHP > 0)) { toast('Enter an amount first'); return; }
+  if (!c.desc) c.desc = 'Expense';
+  c.photo = pendingPhoto || null;
+  var list = loadTxs();
+  if (editingId) {
+    for (var i = 0; i < list.length; i++) {
+      if (list[i].id === editingId) { c.id = editingId; list[i] = c; break; }
+    }
+    toast('Expense updated');
+  } else {
+    c.id = 'tx' + Date.now() + Math.floor(Math.random()*1000);
+    list.unshift(c);
+    toast('Expense saved');
+  }
+  saveTxs(list);
+  cancelEdit(true);
+  renderHistory(); renderSummary();
+}
+
+function editTx(id){
+  var list = loadTxs();
+  var t = null;
+  for (var i = 0; i < list.length; i++) if (list[i].id === id) { t = list[i]; break; }
+  if (!t) return;
+  editingId = id;
+  document.getElementById('desc').value = t.desc;
+  document.getElementById('amount').value = t.amountPHP;
+  document.getElementById('date').value = t.date;
+  document.getElementById('parties').value = t.parties;
+  pendingPhoto = t.photo || null;
+  showPhotoPreview();
+  document.getElementById('saveBtn').textContent = 'Update';
+  document.getElementById('cancelEditBtn').style.display = 'block';
+  recalc();
+  showPage('new');
+}
+
+function cancelEdit(keepQuiet){
+  editingId = null;
+  document.getElementById('desc').value = '';
+  document.getElementById('amount').value = '';
+  document.getElementById('date').value = todayStr();
+  document.getElementById('parties').value = 2;
+  pendingPhoto = null;
+  showPhotoPreview();
+  document.getElementById('saveBtn').textContent = 'Save';
+  document.getElementById('cancelEditBtn').style.display = 'none';
+  recalc();
+}
+
+function deleteTx(id){
+  if (!confirm('Delete this expense?')) return;
+  saveTxs(loadTxs().filter(function(t){ return t.id !== id; }));
+  renderHistory(); renderSummary();
+  toast('Deleted');
+}
+
+/* ---------- sharing ---------- */
+function txMessage(c){
+  return c.desc + ' — ' + c.date + '\n' +
+    'Total: ' + fmtPHP(c.amountPHP) + ' (≈ ' + fmtCAD(c.amountCAD) + ')\n' +
+    'Split ' + c.parties + ' way' + (c.parties > 1 ? 's' : '') + ': ' +
+    fmtPHP(c.eachPHP) + ' each (≈ ' + fmtCAD(c.eachCAD) + ' each)\n' +
+    'Rate: ₱1 = ' + c.rate.toFixed(5) + ' CAD';
+}
+function dataURLtoFile(dataURL, name){
+  try {
+    var parts = dataURL.split(',');
+    var mime = parts[0].match(/:(.*?);/)[1];
+    var bin = atob(parts[1]);
+    var arr = new Uint8Array(bin.length);
+    for (var i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
+    return new File([arr], name, { type: mime });
+  } catch(e){ return null; }
+}
+function shareText(text, photo){
+  if (navigator.share) {
+    var payload = { text: text };
+    if (photo && navigator.canShare) {
+      var f = dataURLtoFile(photo, 'receipt.jpg');
+      if (f && navigator.canShare({ files: [f] })) payload.files = [f];
+    }
+    navigator.share(payload).catch(function(){});
+  } else if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(text).then(function(){ toast('Copied — paste it anywhere'); });
+  } else {
+    window.location.href = 'mailto:?body=' + encodeURIComponent(text);
+  }
+}
+function shareCurrent(){
+  var c = currentInput();
+  if (!(c.amountPHP > 0)) { toast('Enter an amount first'); return; }
+  if (!c.desc) c.desc = 'Expense';
+  shareText(txMessage(c), pendingPhoto);
+}
+function shareTx(id){
+  var list = loadTxs();
+  for (var i = 0; i < list.length; i++) if (list[i].id === id) { shareText(txMessage(list[i]), list[i].photo); return; }
+}
+
+/* ---------- history ---------- */
+function renderHistory(){
+  var list = loadTxs();
+  var el = document.getElementById('txList');
+  if (!list.length) {
+    el.innerHTML = '<div class="empty">No expenses yet.<br>Add one from the New tab.</div>';
+    return;
+  }
+  var h = '';
+  list.forEach(function(t){
+    var thumb = t.photo
+      ? '<img class="tx-thumb" src="' + t.photo + '" alt="Receipt" onclick="viewPhoto(\'' + t.id + '\')">'
+      : '';
+    h += '<div class="tx-wrap">' +
+      '<div class="tx">' + thumb + '<div class="info">' +
+        '<div class="desc">' + esc(t.desc) + '</div>' +
+        '<div class="meta">' + t.date + ' · ' + t.parties + ' people</div>' +
+      '</div><div class="amts">' +
+        '<div class="php">' + fmtPHP(t.amountPHP) + '</div>' +
+        '<div class="cad">≈ ' + fmtCAD(t.amountCAD) + '</div>' +
+        '<div class="each-sm">' + fmtPHP(t.eachPHP) + ' each</div>' +
+      '</div></div>' +
+      '<div class="tx-actions">' +
+        '<button class="edit-btn" onclick="editTx(\'' + t.id + '\')">Edit</button>' +
+        '<button class="share-btn" onclick="shareTx(\'' + t.id + '\')">Share</button>' +
+        '<button class="del-btn" onclick="deleteTx(\'' + t.id + '\')">Delete</button>' +
+      '</div></div>';
+  });
+  el.innerHTML = h;
+}
+function esc(s){ return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+
+/* ---------- summary ---------- */
+var MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+function renderSummary(){
+  var list = loadTxs();
+  var el = document.getElementById('summaryContent');
+  if (!list.length) {
+    el.innerHTML = '<div class="empty">Nothing to summarize yet.</div>';
+    return;
+  }
+  var byMonth = {}, byYear = {};
+  list.forEach(function(t){
+    var ym = t.date.slice(0,7), y = t.date.slice(0,4);
+    (byMonth[ym] = byMonth[ym] || {php:0, cad:0, n:0});
+    byMonth[ym].php += t.amountPHP; byMonth[ym].cad += t.amountCAD; byMonth[ym].n++;
+    (byYear[y] = byYear[y] || {php:0, cad:0, n:0});
+    byYear[y].php += t.amountPHP; byYear[y].cad += t.amountCAD; byYear[y].n++;
+  });
+  function tableFor(obj, labelFn){
+    var keys = Object.keys(obj).sort().reverse();
+    var h = '<table class="sum"><tr><th>Period</th><th>#</th><th>PHP</th><th>CAD</th></tr>';
+    keys.forEach(function(k){
+      var v = obj[k];
+      h += '<tr><td>' + labelFn(k) + '</td><td>' + v.n + '</td><td>' + fmtPHP(v.php) + '</td><td>' + fmtCAD(v.cad) + '</td></tr>';
+    });
+    return h + '</table>';
+  }
+  el.innerHTML =
+    '<div class="sum-section"><h2>By month</h2>' +
+    tableFor(byMonth, function(k){ return MONTHS[parseInt(k.slice(5,7),10)-1] + ' ' + k.slice(0,4); }) +
+    '</div><div class="sum-section"><h2>By year</h2>' +
+    tableFor(byYear, function(k){ return k; }) + '</div>';
+}
+
+/* ---------- tabs ---------- */
+function showPage(name){
+  ['new','history','summary'].forEach(function(p){
+    document.getElementById('page-' + p).classList.toggle('active', p === name);
+    document.getElementById('tab-' + p).classList.toggle('active', p === name);
+  });
+  document.getElementById('pageTitle').textContent =
+    name === 'new' ? 'Split It' : name === 'history' ? 'History' : 'Summary';
+  if (name === 'history') renderHistory();
+  if (name === 'summary') renderSummary();
+}
+
+/* ---------- init ---------- */
+document.getElementById('date').value = todayStr();
+['amount','parties'].forEach(function(id){
+  document.getElementById(id).addEventListener('input', recalc);
+});
+if (!storageOK) {
+  document.getElementById('storageNote').textContent =
+    'Note: this browser is blocking storage, so history won’t survive closing the page. Open the file in Safari and Add to Home Screen for full saving.';
+}
+recalc();
+renderHistory();
+renderSummary();
+</script>
+</body>
+</html>
